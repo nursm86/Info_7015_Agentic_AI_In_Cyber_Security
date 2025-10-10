@@ -1,0 +1,30 @@
+body {
+    background: radial-gradient(circle at top, #f4f6ff 0%, #e9ecff 45%, #ffffff 100%);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+}
+
+.card {
+    border-radius: 1rem;
+}
+
+.card .card-title {
+    font-weight: 600;
+}
+
+.input-group-text {
+    background-color: #eef2ff;
+    border-right: 0;
+}
+
+.input-group .form-control {
+    border-left: 0;
+}
+
+.chart-container {
+    position: relative;
+    min-height: 260px;
+}
+
+table tbody tr td {
+    vertical-align: middle;
+}
