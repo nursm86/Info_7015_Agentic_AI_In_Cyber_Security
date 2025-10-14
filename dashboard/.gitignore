@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+env/
+
+# Data and models (keep repo light)
+data/
+model_store/
+
+# Logs and temp
+*.log
+logs/
