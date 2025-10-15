@@ -92,21 +92,27 @@ def _capture(kind=None, rate=None):
     }
     _append_history(entry)
 
+def _safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
 # --------------- left controls ---------------
 with st.sidebar:
     st.header("Controls")
     if st.button("🔐 Capture Baseline"):
         _capture(kind=None)
-        st.experimental_rerun()
+        _safe_rerun()
     if st.button("➕ Add Benign Batch + Retrain"):
         _capture(kind='benign')
-        st.experimental_rerun()
+        _safe_rerun()
     if st.button("⚠️ Add Attack Batch + Retrain"):
         _capture(kind='attack')
-        st.experimental_rerun()
+        _safe_rerun()
     if st.button("🗑️ Reset History"):
         if os.path.exists(HIST_PATH): os.remove(HIST_PATH)
-        st.experimental_rerun()
+        _safe_rerun()
 
 # --------------- top KPIs ---------------
 conf = _load_conf()

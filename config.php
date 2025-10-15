@@ -46,14 +46,14 @@ function seedDatabase(PDO $pdo): void
         if ($logCount === 0) {
             $userId = (int) $pdo->query('SELECT id FROM users LIMIT 1')->fetchColumn();
             $insertLog = $pdo->prepare(
-                'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status)
-                 VALUES (:user_id, :ip, :agent, :time, :status)'
+                'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status, risk_score, risk_decision)
+                 VALUES (:user_id, :ip, :agent, :time, :status, :risk_score, :risk_decision)'
             );
 
             $seedLogs = [
-                ['status' => 'valid', 'time' => date('Y-m-d H:i:s', strtotime('-2 days'))],
-                ['status' => 'blocked', 'time' => date('Y-m-d H:i:s', strtotime('-1 day'))],
-                ['status' => 'verification', 'time' => date('Y-m-d H:i:s', strtotime('-12 hours'))],
+                ['status' => 'valid', 'decision' => 'allow', 'score' => 0.05, 'time' => date('Y-m-d H:i:s', strtotime('-2 days'))],
+                ['status' => 'blocked', 'decision' => 'block', 'score' => 0.92, 'time' => date('Y-m-d H:i:s', strtotime('-1 day'))],
+                ['status' => 'verification', 'decision' => 'step_up', 'score' => 0.55, 'time' => date('Y-m-d H:i:s', strtotime('-12 hours'))],
             ];
 
             foreach ($seedLogs as $entry) {
@@ -63,6 +63,8 @@ function seedDatabase(PDO $pdo): void
                     ':agent' => 'Seeder/1.0',
                     ':time' => $entry['time'],
                     ':status' => $entry['status'],
+                    ':risk_score' => $entry['score'],
+                    ':risk_decision' => $entry['decision'],
                 ]);
             }
         }
@@ -81,17 +83,21 @@ function logLoginAttempt(
     ?int $userId,
     string $ipAddress,
     string $browserAgent,
-    string $status
+    string $status,
+    ?float $riskScore = null,
+    ?string $riskDecision = null
 ): void {
     $stmt = $pdo->prepare(
-        'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status)
-         VALUES (:user_id, :ip, :agent, NOW(), :status)'
+        'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status, risk_score, risk_decision)
+         VALUES (:user_id, :ip, :agent, NOW(), :status, :risk_score, :risk_decision)'
     );
     $stmt->execute([
         ':user_id' => $userId,
         ':ip' => $ipAddress,
         ':agent' => $browserAgent,
         ':status' => $status,
+        ':risk_score' => $riskScore,
+        ':risk_decision' => $riskDecision,
     ]);
 }
 

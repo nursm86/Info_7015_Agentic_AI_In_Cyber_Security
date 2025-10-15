@@ -28,7 +28,13 @@ foreach ($statsStmt as $row) {
 }
 
 $recentStmt = $pdo->prepare(
-    'SELECT login_logs.login_time, login_logs.ip_address, login_logs.browser_agent, login_logs.status, users.email
+    'SELECT login_logs.login_time,
+            login_logs.ip_address,
+            login_logs.browser_agent,
+            login_logs.status,
+            login_logs.risk_score,
+            login_logs.risk_decision,
+            users.email
      FROM login_logs
      LEFT JOIN users ON login_logs.user_id = users.id
      ORDER BY login_logs.login_time DESC
@@ -106,12 +112,13 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                                 <th scope="col">IP Address</th>
                                 <th scope="col">Browser Agent</th>
                                 <th scope="col">Status</th>
+                                <th scope="col">Risk</th>
                             </tr>
                             </thead>
                             <tbody>
                             <?php if (empty($recentLogs)): ?>
                                 <tr>
-                                    <td colspan="5" class="text-center text-muted">No login activity recorded yet.</td>
+                                    <td colspan="6" class="text-center text-muted">No login activity recorded yet.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($recentLogs as $log): ?>
@@ -129,6 +136,16 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                                             <span class="badge bg-<?= $log['status'] === 'valid' ? 'success' : ($log['status'] === 'blocked' ? 'danger' : 'warning') ?>">
                                                 <?= ucfirst($log['status']) ?>
                                             </span>
+                                        </td>
+                                        <td>
+                                            <?php if ($log['risk_score'] !== null): ?>
+                                                <div class="d-flex flex-column small">
+                                                    <span><?= number_format((float) $log['risk_score'], 3) ?></span>
+                                                    <span class="text-muted"><?= htmlspecialchars($log['risk_decision'] ?? 'n/a', ENT_QUOTES, 'UTF-8') ?></span>
+                                                </div>
+                                            <?php else: ?>
+                                                <span class="text-muted small">n/a</span>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

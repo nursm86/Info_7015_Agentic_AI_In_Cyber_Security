@@ -1,0 +1,70 @@
+{
+  "ts": "2025-10-15T14:00:18",
+  "tau1": 0.18,
+  "tau2": 0.38,
+  "sweep": {
+    "tau1": 0.18,
+    "tau2": 0.38,
+    "cost": 19636.0,
+    "stats": {
+      "tn": 758,
+      "fp_step": 36,
+      "fp_block": 0,
+      "tp": 0,
+      "fn": 196,
+      "block_rate": 0.0,
+      "step_rate": 0.036
+    },
+    "alternatives": [
+      {
+        "tau1": 0.18,
+        "tau2": 0.42000000000000004,
+        "cost": 19636.0,
+        "stats": {
+          "tn": 758,
+          "fp_step": 36,
+          "fp_block": 0,
+          "tp": 0,
+          "fn": 196,
+          "block_rate": 0.0,
+          "step_rate": 0.036
+        }
+      },
+      {
+        "tau1": 0.18,
+        "tau2": 0.46,
+        "cost": 19636.0,
+        "stats": {
+          "tn": 758,
+          "fp_step": 36,
+          "fp_block": 0,
+          "tp": 0,
+          "fn": 196,
+          "block_rate": 0.0,
+          "step_rate": 0.036
+        }
+      },
+      {
+        "tau1": 0.18,
+        "tau2": 0.5,
+        "cost": 19636.0,
+        "stats": {
+          "tn": 758,
+          "fp_step": 36,
+          "fp_block": 0,
+          "tp": 0,
+          "fn": 196,
+          "block_rate": 0.0,
+          "step_rate": 0.036
+        }
+      }
+    ],
+    "guardrails": {
+      "max_block_rate": 0.02,
+      "max_step_rate": 0.1,
+      "C_FN": 100,
+      "C_FP_STEP": 1,
+      "C_FP_BLOCK": 5
+    }
+  }
+}

@@ -61,32 +61,24 @@ def append_synthetic_batch(
     increments = [timedelta(seconds=int(i * (180.0 / max(k, 1)))) for i in range(k)]
     base["ts"] = [last_ts + inc for inc in increments]
 
-    # --- SAFE ALIGNMENT TO CSV HEADER (no reindex on duplicate axis) ---
-
-    # 1) Read CSV header and deduplicate
-    file_header_idx = pd.Index(pd.read_csv(csv_path, nrows=0).columns)
-    header_unique = file_header_idx[~file_header_idx.duplicated()].tolist()
-
-    # 2) Deduplicate columns of the synthetic batch
+    # --- Ensure column order matches current dataframe (canonical schema) ---
+    canonical_cols = pd.Index(df.columns).drop_duplicates().tolist()
     base = base.loc[:, ~base.columns.duplicated()].copy()
 
-    # 3) Keep only columns that exist in either header or the batch now;
-    #    add any header columns that are missing in 'base' with NaN
-    #    (so write order is consistent)
-    missing_cols = [c for c in header_unique if c not in base.columns]
+    missing_cols = [c for c in canonical_cols if c not in base.columns]
     for c in missing_cols:
         base[c] = np.nan
 
-    # 4) Final ordering: exactly the (deduped) header order, but only once
-    #    we are sure all header columns exist in base
-    base = base[header_unique]
+    base = base[canonical_cols]
 
     # Append to disk: same CSV, no header
     base.to_csv(csv_path, mode="a", index=False, header=False)
 
+    ts_values = base["ts"] if "ts" in base.columns else pd.Series(dtype="datetime64[ns]")
+
     return {
         "appended": int(len(base)),
         "attack_rate": float(attack_rate),
-        "ts_from": str(pd.to_datetime(base["ts"]).min()),
-        "ts_to": str(pd.to_datetime(base["ts"]).max()),
+        "ts_from": str(pd.to_datetime(ts_values).min()) if not ts_values.empty else None,
+        "ts_to": str(pd.to_datetime(ts_values).max()) if not ts_values.empty else None,
     }

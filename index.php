@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/risk_scoring.php';
 
 if (isset($_SESSION['user_id'])) {
     header('Location: dashboard.php');
@@ -10,6 +11,16 @@ if (isset($_SESSION['user_id'])) {
 
 $error = '';
 $email = '';
+$deviceToken = $_COOKIE['device_token'] ?? null;
+
+if ($deviceToken === null) {
+    try {
+        $deviceToken = bin2hex(random_bytes(16));
+        setcookie('device_token', $deviceToken, time() + (86400 * 365), '/', '', false, true);
+    } catch (Exception $e) {
+        $deviceToken = null;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim((string) ($_POST['email'] ?? ''));
@@ -23,26 +34,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([':email' => $email]);
         $user = $stmt->fetch();
         $userId = $user ? (int) $user['id'] : null;
+        $passwordValid = $user && password_verify($password, $user['password']);
 
-        if ($user && password_verify($password, $user['password'])) {
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = (int) $user['id'];
+        $ipAddress = getClientIp();
+        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
 
-            if ($remember) {
-                $token = hash_hmac('sha256', $user['email'], $user['password']);
-                $value = base64_encode($user['id'] . ':' . $token);
-                setcookie('remember_me', $value, time() + (86400 * 7), '/', '', false, true);
-            } else {
-                setcookie('remember_me', '', time() - 3600, '/', '', false, true);
+        $riskScore = null;
+        $riskDecision = null;
+
+        try {
+            $features = buildRiskFeatures($pdo, [
+                'user_id' => $userId,
+                'email' => $email,
+                'ip' => $ipAddress,
+                'user_agent' => $userAgent,
+                'device_token' => $deviceToken,
+            ]);
+            $riskResult = scoreLoginAttempt($features);
+            if (is_array($riskResult)) {
+                $riskScore = $riskResult['score'];
+                $riskDecision = $riskResult['decision'];
             }
-
-            logLoginAttempt($pdo, $userId, getClientIp(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 'valid');
-            header('Location: dashboard.php');
-            exit;
+        } catch (Throwable $t) {
+            error_log('[login] Risk scoring failed: ' . $t->getMessage());
         }
 
-        $error = 'Invalid email or password.';
-        logLoginAttempt($pdo, $userId, getClientIp(), $_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 'blocked');
+        $processPassword = true;
+
+        if ($riskDecision === 'block') {
+            $error = 'Access temporarily blocked by AI risk controls. Please try again later.';
+            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'blocked', $riskScore, $riskDecision);
+            $processPassword = false;
+        } elseif ($riskDecision === 'step_up') {
+            $error = 'Additional verification required. Please contact support to complete sign-in.';
+            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'verification', $riskScore, $riskDecision);
+            $processPassword = false;
+        } elseif ($riskDecision === null && $riskScore === null) {
+            // scorer unavailable, default to allow path but note missing telemetry
+            $riskDecision = 'allow';
+        }
+
+        if ($processPassword) {
+            if ($passwordValid) {
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = (int) $user['id'];
+
+                if ($remember) {
+                    $token = hash_hmac('sha256', $user['email'], $user['password']);
+                    $value = base64_encode($user['id'] . ':' . $token);
+                    setcookie('remember_me', $value, time() + (86400 * 7), '/', '', false, true);
+                } else {
+                    setcookie('remember_me', '', time() - 3600, '/', '', false, true);
+                }
+
+                logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'valid', $riskScore, $riskDecision);
+                header('Location: dashboard.php');
+                exit;
+            }
+
+            $error = 'Invalid email or password.';
+            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'blocked', $riskScore, $riskDecision);
+        }
     }
 }
 ?>
