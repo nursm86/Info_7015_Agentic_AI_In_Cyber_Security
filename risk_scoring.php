@@ -5,7 +5,23 @@ declare(strict_types=1);
  * Risk scoring helpers bridging the PHP login flow with the Python RBA model.
  */
 
-const PYTHON_BIN = 'python3';
+$scorerCmd = getenv('RBA_SCORER_CMD');
+if ($scorerCmd === false || trim((string) $scorerCmd) === '') {
+    $wrapper = __DIR__ . '/model/run_scorer.sh';
+    if (is_file($wrapper) && is_executable($wrapper)) {
+        $scorerCmd = escapeshellarg($wrapper);
+    } else {
+        $python = '/Library/Developer/CommandLineTools/usr/bin/python3';
+        if (!is_executable($python)) {
+            $python = '/usr/bin/python3';
+        }
+        $scorerCmd = escapeshellcmd('/usr/bin/arch') . ' -x86_64 ' . escapeshellarg($python) . ' ' . escapeshellarg(__DIR__ . '/model/score_request.py');
+    }
+} else {
+    $scorerCmd = trim((string) $scorerCmd);
+}
+
+define('SCORER_CMD', $scorerCmd);
 const SCORE_SCRIPT = __DIR__ . '/model/score_request.py';
 
 /**
@@ -236,8 +252,16 @@ function scoreLoginAttempt(array $features): ?array
         2 => ['pipe', 'w'],
     ];
 
-    $cmd = escapeshellcmd(PYTHON_BIN) . ' ' . escapeshellarg(SCORE_SCRIPT);
-    $process = proc_open($cmd, $descriptors, $pipes, __DIR__);
+    $process = proc_open(
+        SCORER_CMD,
+        $descriptors,
+        $pipes,
+        __DIR__,
+        [
+            'PYTHONPATH' => '',
+            'PYTHONNOUSERSITE' => '1',
+        ]
+    );
 
     if (!is_resource($process)) {
         error_log('[risk_scoring] Failed to start Python scorer');

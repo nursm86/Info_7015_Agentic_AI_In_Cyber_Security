@@ -28,7 +28,7 @@ CONFIG = _cleanup(
             "c": {
                 "name": "clang",
                 "linker": r"ld64",
-                "version": "15.0.0",
+                "version": "13.0.0",
                 "commands": r"cc",
                 "args": r"",
                 "linker args": r"",
@@ -44,7 +44,7 @@ CONFIG = _cleanup(
             "c++": {
                 "name": "clang",
                 "linker": r"ld64",
-                "version": "15.0.0",
+                "version": "13.0.0",
                 "commands": r"c++",
                 "args": r"",
                 "linker args": r"",
@@ -52,26 +52,26 @@ CONFIG = _cleanup(
             "fortran": {
                 "name": "gcc",
                 "linker": r"ld64",
-                "version": "12.1.0",
+                "version": "11.3.0",
                 "commands": r"gfortran",
                 "args": r"",
                 "linker args": r"",
             },
             "pythran": {
                 "version": r"0.15.0",
-                "include directory": r"../../../../../../private/var/folders/2f/8t5k6yr535sdw0s4glnpxrzm0000gn/T/pip-build-env-ddcl7dz8/overlay/lib/python3.9/site-packages/pythran"
+                "include directory": r"../../../../../../private/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T/pip-build-env-hy4ryy83/overlay/lib/python3.9/site-packages/pythran"
             },
         },
         "Machine Information": {
             "host": {
-                "cpu": r"aarch64",
-                "family": r"aarch64",
+                "cpu": r"x86_64",
+                "family": r"x86_64",
                 "endian": r"little",
                 "system": r"darwin",
             },
             "build": {
-                "cpu": r"aarch64",
-                "family": r"aarch64",
+                "cpu": r"x86_64",
+                "family": r"x86_64",
                 "endian": r"little",
                 "system": r"darwin",
             },
@@ -83,20 +83,20 @@ CONFIG = _cleanup(
                 "found": bool("True".lower().replace('false', '')),
                 "version": "0.3.27",
                 "detection method": "pkgconfig",
-                "include directory": r"/opt/arm64-builds/include",
-                "lib directory": r"/opt/arm64-builds/lib",
+                "include directory": r"/usr/local/include",
+                "lib directory": r"/usr/local/lib",
                 "openblas configuration": r"USE_64BITINT=0 DYNAMIC_ARCH=1 DYNAMIC_OLDER= NO_CBLAS= NO_LAPACK= NO_LAPACKE= NO_AFFINITY=1 USE_OPENMP= SANDYBRIDGE MAX_THREADS=64",
-                "pc file directory": r"/opt/arm64-builds/lib/pkgconfig",
+                "pc file directory": r"/usr/local/lib/pkgconfig",
             },
             "lapack": {
                 "name": "openblas",
                 "found": bool("True".lower().replace('false', '')),
                 "version": "0.3.27",
                 "detection method": "pkgconfig",
-                "include directory": r"/opt/arm64-builds/include",
-                "lib directory": r"/opt/arm64-builds/lib",
+                "include directory": r"/usr/local/include",
+                "lib directory": r"/usr/local/lib",
                 "openblas configuration": r"USE_64BITINT=0 DYNAMIC_ARCH=1 DYNAMIC_OLDER= NO_CBLAS= NO_LAPACK= NO_LAPACKE= NO_AFFINITY=1 USE_OPENMP= SANDYBRIDGE MAX_THREADS=64",
-                "pc file directory": r"/opt/arm64-builds/lib/pkgconfig",
+                "pc file directory": r"/usr/local/lib/pkgconfig",
             },
             "pybind11": {
                 "name": "pybind11",
@@ -106,7 +106,7 @@ CONFIG = _cleanup(
             },
         },
         "Python Information": {
-            "path": r"/private/var/folders/2f/8t5k6yr535sdw0s4glnpxrzm0000gn/T/cibw-run-_36keccq/cp39-macosx_arm64/build/venv/bin/python",
+            "path": r"/private/var/folders/24/8k48jl6d249_n_qfxwsl6xvm0000gn/T/cibw-run-d7dcw0c1/cp39-macosx_x86_64/build/venv/bin/python",
             "version": "3.9",
         },
     }
