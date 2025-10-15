@@ -16,10 +16,12 @@ CREATE TABLE IF NOT EXISTS login_logs (
   user_id INT UNSIGNED NULL,
   ip_address VARCHAR(45) NOT NULL,
   browser_agent VARCHAR(255) NOT NULL,
+  submitted_email VARCHAR(255) NULL,
   login_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   status ENUM('valid', 'blocked', 'verification') NOT NULL,
   risk_score DECIMAL(6,5) NULL,
   risk_decision ENUM('allow', 'step_up', 'block') NULL,
+  context_json LONGTEXT NULL,
   CONSTRAINT fk_login_logs_user
     FOREIGN KEY (user_id) REFERENCES users (id)
     ON DELETE SET NULL

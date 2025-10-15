@@ -25,6 +25,25 @@ try {
     exit('Database connection failed: ' . $e->getMessage());
 }
 
+function ensureLoginLogSchema(PDO $pdo): void
+{
+    try {
+        $columnCheck = $pdo->query("SHOW COLUMNS FROM login_logs LIKE 'submitted_email'");
+        if ($columnCheck !== false && $columnCheck->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE login_logs ADD COLUMN submitted_email VARCHAR(255) NULL AFTER user_id");
+        }
+
+        $contextCheck = $pdo->query("SHOW COLUMNS FROM login_logs LIKE 'context_json'");
+        if ($contextCheck !== false && $contextCheck->rowCount() === 0) {
+            $pdo->exec("ALTER TABLE login_logs ADD COLUMN context_json LONGTEXT NULL");
+        }
+    } catch (PDOException $e) {
+        error_log('[schema] Failed to ensure login_logs columns: ' . $e->getMessage());
+    }
+}
+
+ensureLoginLogSchema($pdo);
+
 /**
  * Insert baseline records to ensure the project has data to work with.
  */
@@ -85,11 +104,25 @@ function logLoginAttempt(
     string $browserAgent,
     string $status,
     ?float $riskScore = null,
-    ?string $riskDecision = null
+    ?string $riskDecision = null,
+    ?string $submittedEmail = null,
+    array $context = []
 ): void {
+    $contextJson = null;
+    if (!empty($context)) {
+        try {
+            $contextJson = json_encode($context, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            $contextJson = json_encode([
+                'error' => 'context_encoding_failed',
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
     $stmt = $pdo->prepare(
-        'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status, risk_score, risk_decision)
-         VALUES (:user_id, :ip, :agent, NOW(), :status, :risk_score, :risk_decision)'
+        'INSERT INTO login_logs (user_id, ip_address, browser_agent, login_time, status, risk_score, risk_decision, submitted_email, context_json)
+         VALUES (:user_id, :ip, :agent, NOW(), :status, :risk_score, :risk_decision, :submitted_email, :context_json)'
     );
     $stmt->execute([
         ':user_id' => $userId,
@@ -98,6 +131,8 @@ function logLoginAttempt(
         ':status' => $status,
         ':risk_score' => $riskScore,
         ':risk_decision' => $riskDecision,
+        ':submitted_email' => $submittedEmail,
+        ':context_json' => $contextJson,
     ]);
 }
 
@@ -106,16 +141,22 @@ function logLoginAttempt(
  */
 function getClientIp(): string
 {
-    $keys = [
-        'HTTP_CLIENT_IP',
-        'HTTP_X_FORWARDED_FOR',
-        'REMOTE_ADDR',
+    $candidates = [
+        $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '',
+        $_SERVER['HTTP_CLIENT_IP'] ?? '',
+        $_SERVER['REMOTE_ADDR'] ?? '',
     ];
 
-    foreach ($keys as $key) {
-        if (!empty($_SERVER[$key])) {
-            $value = explode(',', (string) $_SERVER[$key]);
-            return trim($value[0]);
+    foreach ($candidates as $candidate) {
+        if ($candidate === '') {
+            continue;
+        }
+        $parts = explode(',', $candidate);
+        foreach ($parts as $part) {
+            $ip = trim($part);
+            if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
+            }
         }
     }
 

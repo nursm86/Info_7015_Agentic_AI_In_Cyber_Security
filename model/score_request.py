@@ -1,7 +1,13 @@
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Dict, Any
+
+BASE_DIR = Path(__file__).resolve().parent
+VENDOR_PATH = BASE_DIR / 'vendor'
+if VENDOR_PATH.exists():
+    sys.path.insert(0, str(VENDOR_PATH))
 
 import joblib
 import numpy as np
@@ -12,7 +18,7 @@ from feature_eng import NUM_FEATS, CAT_FEATS
 CONF_PATH = os.getenv('RBA_CONF_PATH', './model_store/agent_config.json')
 MODEL_PATH = os.getenv('RBA_MODEL_PATH', './model_store/rba_model.joblib')
 
-DEFAULT_CONF = {'tau1': 0.35, 'tau2': 0.95}
+DEFAULT_CONF = {'tau1': 0.16, 'tau2': 0.22}
 
 NUM_DEFAULTS: Dict[str, float] = {
     'attempts_1m_by_ip': 0.0,
@@ -36,6 +42,7 @@ CAT_DEFAULTS: Dict[str, str] = {
     'cookie_seen_before_user': '0',
 }
 
+_PIPELINE_CACHE = None
 
 def _load_conf() -> Dict[str, Any]:
     conf = DEFAULT_CONF.copy()
@@ -49,9 +56,14 @@ def _load_conf() -> Dict[str, Any]:
 
 
 def _load_model():
+    global _PIPELINE_CACHE
+    if _PIPELINE_CACHE is not None:
+        return _PIPELINE_CACHE
+
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
-    return joblib.load(MODEL_PATH)
+    _PIPELINE_CACHE = joblib.load(MODEL_PATH)
+    return _PIPELINE_CACHE
 
 
 def _prepare_row(features: Dict[str, Any]) -> pd.DataFrame:

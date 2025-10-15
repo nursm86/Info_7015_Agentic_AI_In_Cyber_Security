@@ -28,12 +28,15 @@ foreach ($statsStmt as $row) {
 }
 
 $recentStmt = $pdo->prepare(
-    'SELECT login_logs.login_time,
+    'SELECT login_logs.id,
+            login_logs.login_time,
             login_logs.ip_address,
             login_logs.browser_agent,
             login_logs.status,
             login_logs.risk_score,
             login_logs.risk_decision,
+            login_logs.submitted_email,
+            login_logs.context_json,
             users.email
      FROM login_logs
      LEFT JOIN users ON login_logs.user_id = users.id
@@ -124,7 +127,23 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                                 <?php foreach ($recentLogs as $log): ?>
                                     <tr>
                                         <td><?= date('M j, Y g:i A', strtotime($log['login_time'])) ?></td>
-                                        <td><?= htmlspecialchars($log['email'] ?? 'Unknown user', ENT_QUOTES, 'UTF-8') ?></td>
+                                        <td>
+                                            <?php
+                                            $knownEmail = $log['email'] ?? null;
+                                            $submittedEmail = $log['submitted_email'] ?? null;
+                                            ?>
+                                            <?php if ($knownEmail !== null): ?>
+                                                <?= htmlspecialchars($knownEmail, ENT_QUOTES, 'UTF-8') ?>
+                                                <?php if ($submittedEmail !== null && $submittedEmail !== '' && strcasecmp((string) $submittedEmail, (string) $knownEmail) !== 0): ?>
+                                                    <span class="text-muted small d-block">Entered: <?= htmlspecialchars($submittedEmail, ENT_QUOTES, 'UTF-8') ?></span>
+                                                <?php endif; ?>
+                                            <?php elseif ($submittedEmail !== null && $submittedEmail !== ''): ?>
+                                                <?= htmlspecialchars($submittedEmail, ENT_QUOTES, 'UTF-8') ?>
+                                                <span class="text-muted small d-block">Unlinked attempt</span>
+                                            <?php else: ?>
+                                                <span class="text-muted small">Unknown user</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td><?= htmlspecialchars($log['ip_address'], ENT_QUOTES, 'UTF-8') ?></td>
                                         <td>
                                             <span class="d-inline-block text-truncate" style="max-width: 220px;"
@@ -144,7 +163,13 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                                                     <span class="text-muted"><?= htmlspecialchars($log['risk_decision'] ?? 'n/a', ENT_QUOTES, 'UTF-8') ?></span>
                                                 </div>
                                             <?php else: ?>
-                                                <span class="text-muted small">n/a</span>
+                                                <span class="text-muted small d-block">n/a</span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($log['context_json'])): ?>
+                                                <details class="mt-1">
+                                                    <summary class="text-muted small">Context</summary>
+                                                    <pre class="small bg-light border rounded p-2 mb-0"><?= htmlspecialchars($log['context_json'], ENT_QUOTES, 'UTF-8') ?></pre>
+                                                </details>
                                             <?php endif; ?>
                                         </td>
                                     </tr>

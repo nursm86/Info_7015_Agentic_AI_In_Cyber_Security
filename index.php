@@ -41,6 +41,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $riskScore = null;
         $riskDecision = null;
+        $attemptContext = [
+            'submitted_email' => $email,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'device_token' => $deviceToken,
+            'remember_me' => $remember,
+        ];
 
         try {
             $features = buildRiskFeatures($pdo, [
@@ -50,24 +57,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'user_agent' => $userAgent,
                 'device_token' => $deviceToken,
             ]);
+            $attemptContext['features'] = $features;
             $riskResult = scoreLoginAttempt($features);
             if (is_array($riskResult)) {
                 $riskScore = $riskResult['score'];
                 $riskDecision = $riskResult['decision'];
+                $attemptContext['risk'] = $riskResult;
             }
         } catch (Throwable $t) {
             error_log('[login] Risk scoring failed: ' . $t->getMessage());
+            $attemptContext['risk_error'] = $t->getMessage();
         }
 
         $processPassword = true;
 
         if ($riskDecision === 'block') {
             $error = 'Access temporarily blocked by AI risk controls. Please try again later.';
-            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'blocked', $riskScore, $riskDecision);
+            logLoginAttempt(
+                $pdo,
+                $userId,
+                $ipAddress,
+                $userAgent,
+                'blocked',
+                $riskScore,
+                $riskDecision,
+                $email !== '' ? $email : null,
+                $attemptContext
+            );
             $processPassword = false;
         } elseif ($riskDecision === 'step_up') {
             $error = 'Additional verification required. Please contact support to complete sign-in.';
-            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'verification', $riskScore, $riskDecision);
+            logLoginAttempt(
+                $pdo,
+                $userId,
+                $ipAddress,
+                $userAgent,
+                'verification',
+                $riskScore,
+                $riskDecision,
+                $email !== '' ? $email : null,
+                $attemptContext
+            );
             $processPassword = false;
         } elseif ($riskDecision === null && $riskScore === null) {
             // scorer unavailable, default to allow path but note missing telemetry
@@ -87,13 +117,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setcookie('remember_me', '', time() - 3600, '/', '', false, true);
                 }
 
-                logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'valid', $riskScore, $riskDecision);
+                $attemptContext['auth'] = ['status' => 'success', 'user_id' => (int) $user['id']];
+                logLoginAttempt(
+                    $pdo,
+                    $userId,
+                    $ipAddress,
+                    $userAgent,
+                    'valid',
+                    $riskScore,
+                    $riskDecision,
+                    $email !== '' ? $email : null,
+                    $attemptContext
+                );
                 header('Location: dashboard.php');
                 exit;
             }
 
             $error = 'Invalid email or password.';
-            logLoginAttempt($pdo, $userId, $ipAddress, $userAgent, 'blocked', $riskScore, $riskDecision);
+            $attemptContext['auth'] = ['status' => 'invalid_password'];
+            logLoginAttempt(
+                $pdo,
+                $userId,
+                $ipAddress,
+                $userAgent,
+                'blocked',
+                $riskScore,
+                $riskDecision,
+                $email !== '' ? $email : null,
+                $attemptContext
+            );
         }
     }
 }

@@ -231,9 +231,9 @@ function scoreLoginAttempt(array $features): ?array
 
     $payload = json_encode(['features' => $features], JSON_THROW_ON_ERROR);
     $descriptors = [
-        0 => ['pipe', 'w'],
-        1 => ['pipe', 'r'],
-        2 => ['pipe', 'r'],
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
     ];
 
     $cmd = escapeshellcmd(PYTHON_BIN) . ' ' . escapeshellarg(SCORE_SCRIPT);
