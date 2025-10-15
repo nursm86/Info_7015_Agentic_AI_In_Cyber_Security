@@ -27,27 +27,10 @@ foreach ($statsStmt as $row) {
     }
 }
 
-$recentStmt = $pdo->prepare(
-    'SELECT login_logs.id,
-            login_logs.login_time,
-            login_logs.ip_address,
-            login_logs.browser_agent,
-            login_logs.status,
-            login_logs.risk_score,
-            login_logs.risk_decision,
-            login_logs.submitted_email,
-            login_logs.context_json,
-            users.email
-     FROM login_logs
-     LEFT JOIN users ON login_logs.user_id = users.id
-     ORDER BY login_logs.login_time DESC
-     LIMIT 8'
-);
-$recentStmt->execute();
-$recentLogs = $recentStmt->fetchAll();
-
 $totalAttempts = array_sum($statuses);
-$lastLogin = $recentLogs[0]['login_time'] ?? null;
+$lastLoginStmt = $pdo->query('SELECT login_time FROM login_logs ORDER BY login_time DESC LIMIT 1');
+$lastLogin = $lastLoginStmt->fetchColumn() ?: null;
+$lastAttemptText = $lastLogin ? date('M j, Y g:i A', strtotime((string) $lastLogin)) : 'No activity yet';
 ?>
 <!doctype html>
 <html lang="en">
@@ -78,10 +61,10 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                     <p class="text-muted mb-4">AI-assisted monitoring of login activity.</p>
                     <div class="pb-3">
                         <p class="mb-1 text-secondary">Total attempts</p>
-                        <p class="display-6 fw-bold"><?= $totalAttempts ?></p>
+                        <p class="display-6 fw-bold" id="total-attempts"><?= $totalAttempts ?></p>
                     </div>
                     <p class="mb-1 text-secondary">Last attempt</p>
-                    <p class="fw-medium"><?= $lastLogin ? date('M j, Y g:i A', strtotime($lastLogin)) : 'No activity yet' ?></p>
+                    <p class="fw-medium" id="last-attempt"><?= htmlspecialchars($lastAttemptText, ENT_QUOTES, 'UTF-8') ?></p>
                     <p class="text-muted small mb-0">Stay vigilant as the AI flags anomalies in real time.</p>
                 </div>
             </div>
@@ -106,6 +89,21 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h5 class="card-title mb-3">Recent Activity</h5>
+                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <label for="activity-page-size" class="text-secondary small mb-0">Rows per page</label>
+                            <select class="form-select form-select-sm" id="activity-page-size" style="width: auto;">
+                                <option value="10" selected>10</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 ms-md-auto">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="activity-prev" disabled>Previous</button>
+                            <span class="text-muted small" id="activity-page-info">Page 1 of 1</span>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" id="activity-next" disabled>Next</button>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table class="table align-middle">
                             <thead class="table-light">
@@ -118,63 +116,10 @@ $lastLogin = $recentLogs[0]['login_time'] ?? null;
                                 <th scope="col">Risk</th>
                             </tr>
                             </thead>
-                            <tbody>
-                            <?php if (empty($recentLogs)): ?>
+                            <tbody id="activity-table-body">
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted">No login activity recorded yet.</td>
+                                    <td colspan="6" class="text-center text-muted">Loading activity&hellip;</td>
                                 </tr>
-                            <?php else: ?>
-                                <?php foreach ($recentLogs as $log): ?>
-                                    <tr>
-                                        <td><?= date('M j, Y g:i A', strtotime($log['login_time'])) ?></td>
-                                        <td>
-                                            <?php
-                                            $knownEmail = $log['email'] ?? null;
-                                            $submittedEmail = $log['submitted_email'] ?? null;
-                                            ?>
-                                            <?php if ($knownEmail !== null): ?>
-                                                <?= htmlspecialchars($knownEmail, ENT_QUOTES, 'UTF-8') ?>
-                                                <?php if ($submittedEmail !== null && $submittedEmail !== '' && strcasecmp((string) $submittedEmail, (string) $knownEmail) !== 0): ?>
-                                                    <span class="text-muted small d-block">Entered: <?= htmlspecialchars($submittedEmail, ENT_QUOTES, 'UTF-8') ?></span>
-                                                <?php endif; ?>
-                                            <?php elseif ($submittedEmail !== null && $submittedEmail !== ''): ?>
-                                                <?= htmlspecialchars($submittedEmail, ENT_QUOTES, 'UTF-8') ?>
-                                                <span class="text-muted small d-block">Unlinked attempt</span>
-                                            <?php else: ?>
-                                                <span class="text-muted small">Unknown user</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td><?= htmlspecialchars($log['ip_address'], ENT_QUOTES, 'UTF-8') ?></td>
-                                        <td>
-                                            <span class="d-inline-block text-truncate" style="max-width: 220px;"
-                                                  title="<?= htmlspecialchars($log['browser_agent'], ENT_QUOTES, 'UTF-8') ?>">
-                                                <?= htmlspecialchars($log['browser_agent'], ENT_QUOTES, 'UTF-8') ?>
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-<?= $log['status'] === 'valid' ? 'success' : ($log['status'] === 'blocked' ? 'danger' : 'warning') ?>">
-                                                <?= ucfirst($log['status']) ?>
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <?php if ($log['risk_score'] !== null): ?>
-                                                <div class="d-flex flex-column small">
-                                                    <span><?= number_format((float) $log['risk_score'], 3) ?></span>
-                                                    <span class="text-muted"><?= htmlspecialchars($log['risk_decision'] ?? 'n/a', ENT_QUOTES, 'UTF-8') ?></span>
-                                                </div>
-                                            <?php else: ?>
-                                                <span class="text-muted small d-block">n/a</span>
-                                            <?php endif; ?>
-                                            <?php if (!empty($log['context_json'])): ?>
-                                                <details class="mt-1">
-                                                    <summary class="text-muted small">Context</summary>
-                                                    <pre class="small bg-light border rounded p-2 mb-0"><?= htmlspecialchars($log['context_json'], ENT_QUOTES, 'UTF-8') ?></pre>
-                                                </details>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
                             </tbody>
                         </table>
                     </div>

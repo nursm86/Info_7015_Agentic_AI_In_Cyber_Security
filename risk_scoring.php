@@ -48,12 +48,9 @@ function buildRiskFeatures(PDO $pdo, array $ctx): array
 
     $deviceType = detectDeviceType($userAgent);
     $uaFamily = extractUaFamily($userAgent);
-    $cookieSeen = $deviceToken !== null ? 1 : 0;
-    $deviceSeen = 0;
-
-    if ($userId !== null) {
-        $deviceSeen = hasUserSeenDevice($pdo, $userId, $userAgent) ? 1 : 0;
-    }
+    [$deviceSeen, $cookieSeen] = computeSeenFlags($pdo, $userId, $userAgent, $deviceToken);
+    $countryCode = detectCountryCode();
+    $asnCode = estimateAsn($ip);
 
     return [
         'attempts_1m_by_ip' => (float) countRecentAttemptsByIp($pdo, $ip, 1),
@@ -68,8 +65,8 @@ function buildRiskFeatures(PDO $pdo, array $ctx): array
         'login_success' => 0.0,
         'ua_family' => $uaFamily,
         'device_type' => $deviceType,
-        'country_ip' => 'ZZ',
-        'asn_ip' => 'asn0',
+        'country_ip' => $countryCode,
+        'asn_ip' => $asnCode,
         'device_seen_before_user' => (string) $deviceSeen,
         'cookie_seen_before_user' => (string) $cookieSeen,
     ];
@@ -103,16 +100,139 @@ function extractUaFamily(string $userAgent): string
     return $candidate !== '' ? $candidate : 'Unknown';
 }
 
+function computeSeenFlags(PDO $pdo, ?int $userId, string $userAgent, ?string $deviceToken): array
+{
+    $deviceSeen = 0;
+    $cookieSeen = 0;
+
+    if ($userId === null) {
+        return [$deviceSeen, $cookieSeen];
+    }
+
+    if (hasUserSeenDevice($pdo, $userId, $userAgent)) {
+        $deviceSeen = 1;
+    }
+
+    if ($deviceToken !== null && $deviceToken !== '') {
+        if (hasUserSeenCookie($pdo, $userId, $deviceToken)) {
+            $cookieSeen = 1;
+        }
+    }
+
+    return [$deviceSeen, $cookieSeen];
+}
+
 function hasUserSeenDevice(PDO $pdo, int $userId, string $userAgent): bool
 {
     $stmt = $pdo->prepare(
-        'SELECT COUNT(*) FROM login_logs WHERE user_id = :user_id AND browser_agent = :agent AND status = "valid"'
+        'SELECT COUNT(*) FROM login_logs WHERE user_id = :user_id AND browser_agent = :agent'
     );
     $stmt->execute([
         ':user_id' => $userId,
         ':agent' => $userAgent,
     ]);
-    return (int) $stmt->fetchColumn() > 0;
+    if ((int) $stmt->fetchColumn() > 0) {
+        return true;
+    }
+
+    $contextStmt = $pdo->prepare(
+        'SELECT context_json FROM login_logs WHERE user_id = :user_id AND context_json IS NOT NULL ORDER BY login_time DESC LIMIT 25'
+    );
+    $contextStmt->execute([':user_id' => $userId]);
+    while ($row = $contextStmt->fetch(PDO::FETCH_ASSOC)) {
+        $context = json_decode((string) $row['context_json'], true);
+        if (!is_array($context)) {
+            continue;
+        }
+        $ctxAgent = $context['user_agent'] ?? null;
+        if ($ctxAgent !== null && strcasecmp((string) $ctxAgent, $userAgent) === 0) {
+            return true;
+        }
+        $features = $context['features'] ?? null;
+        if (is_array($features) && isset($features['ua_family'])) {
+            $ua = extractUaFamily($userAgent);
+            if (strcasecmp((string) $features['ua_family'], $ua) === 0) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function hasUserSeenCookie(PDO $pdo, int $userId, string $deviceToken): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT context_json FROM login_logs WHERE user_id = :user_id AND context_json IS NOT NULL ORDER BY login_time DESC LIMIT 50'
+    );
+    $stmt->execute([':user_id' => $userId]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $context = json_decode((string) $row['context_json'], true);
+        if (!is_array($context)) {
+            continue;
+        }
+        $loggedToken = $context['device_token'] ?? ($context['features']['device_token'] ?? null);
+        if ($loggedToken !== null && hash_equals((string) $loggedToken, $deviceToken)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function detectCountryCode(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_CF_IPCOUNTRY'] ?? '',
+        $_SERVER['GEOIP_COUNTRY_CODE'] ?? '',
+        $_SERVER['HTTP_X_APPENGINE_COUNTRY'] ?? '',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $code = normalizeCountryCode($candidate);
+        if ($code !== null) {
+            return $code;
+        }
+    }
+
+    $acceptLanguage = $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '';
+    if ($acceptLanguage !== '') {
+        $parts = explode(',', $acceptLanguage);
+        foreach ($parts as $part) {
+            if (preg_match('/([a-zA-Z]{2})(?:[_-]([a-zA-Z]{2}))?/', $part, $matches)) {
+                $country = $matches[2] ?? $matches[1];
+                $code = normalizeCountryCode($country);
+                if ($code !== null) {
+                    return $code;
+                }
+            }
+        }
+    }
+
+    return 'ZZ';
+}
+
+function normalizeCountryCode(string $value): ?string
+{
+    $value = strtoupper(trim($value));
+    if ($value === '') {
+        return null;
+    }
+    if (strlen($value) === 2 && ctype_alpha($value)) {
+        return $value;
+    }
+    return null;
+}
+
+function estimateAsn(string $ip): string
+{
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+        return 'asn0';
+    }
+
+    $normalized = strtolower($ip);
+    $hash = sprintf('%u', crc32($normalized));
+    $number = (int) $hash % 10000;
+    return 'asn' . $number;
 }
 
 function countRecentAttemptsByIp(PDO $pdo, string $ip, int $minutes): int
