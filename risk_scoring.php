@@ -467,7 +467,7 @@ function scoreLoginAttempt(array $features): ?array
  */
 function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?array
 {
-    $model = trim((string) (getenv('OLLAMA_RISK_MODEL') ?: 'phi:3.5'));
+    $model = trim((string) (getenv('OLLAMA_RISK_MODEL') ?: 'phi3.5:latest'));
     if ($model === '') {
         return null;
     }
@@ -489,6 +489,7 @@ function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?arr
             'stream' => false,
             'options' => [
                 'temperature' => 0.0,
+                'num_predict' => 200,
             ],
         ], JSON_THROW_ON_ERROR);
     } catch (\JsonException $e) {
@@ -507,7 +508,7 @@ function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?arr
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_TIMEOUT => 10,
+        CURLOPT_TIMEOUT => 25,
     ]);
 
     $body = curl_exec($ch);
@@ -521,12 +522,13 @@ function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?arr
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
+    $decoded = json_decode($body, true);
     if ($status < 200 || $status >= 300) {
-        error_log('[risk_scoring] Ollama returned HTTP ' . $status);
+        $message = is_array($decoded) && isset($decoded['error']) ? (string) $decoded['error'] : $body;
+        error_log('[risk_scoring] Ollama returned HTTP ' . $status . ': ' . $message);
         return null;
     }
 
-    $decoded = json_decode($body, true);
     if (!is_array($decoded)) {
         error_log('[risk_scoring] Ollama response not valid JSON: ' . $body);
         return null;
@@ -573,7 +575,12 @@ function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?arr
     }
 
     if (isset($parsed['reason'])) {
-        $augmented['reason'] = trim((string) $parsed['reason']);
+        $candidateReason = trim((string) $parsed['reason']);
+        if ($candidateReason !== '') {
+            $augmented['reason'] = $candidateReason;
+        }
+    } else {
+        $augmented['reason'] = $augmented['reason'] ?? 'No explanation provided.';
     }
 
     return $augmented;
@@ -600,12 +607,17 @@ You are an AI security analyst helping to detect suspicious login attempts. Revi
 Focus on signals that could indicate attack conditions such as rapid bursts of attempts, unusual IP behavior, or unseen devices. \
 Decide whether to allow, step up, or block the attempt.
 
-Return a strict JSON object with the following fields:
-- "score": float risk score between 0 and 1 (you may reuse or adjust the baseline score).
-- "decision": one of "allow", "step_up", or "block".
-- "tau1": float threshold for step-up.
-- "tau2": float threshold for block.
-- "reason": short sentence describing the key evidence behind your decision.
+You MUST reply with EXACT JSON (no markdown, no code fences, no prose) in this structure:
+{
+  "score": <float 0-1>,
+  "decision": "allow"|"step_up"|"block",
+  "tau1": <float 0-1>,
+  "tau2": <float 0-1>,
+  "reason": "<short justification>"
+}
+- Keep tau1 <= tau2.
+- If you keep the baseline score, repeat it exactly; otherwise provide your adjusted value.
+- "reason" must be a concise sentence citing the strongest evidence.
 
 Baseline model result:
 $baseJson
