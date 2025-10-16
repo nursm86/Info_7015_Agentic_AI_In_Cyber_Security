@@ -50,6 +50,21 @@ try {
 
     $rows = [];
     while ($row = $logsStmt->fetch(PDO::FETCH_ASSOC)) {
+        $riskReason = null;
+        if (!empty($row['context_json'])) {
+            try {
+                $context = json_decode((string) $row['context_json'], true, 512, JSON_THROW_ON_ERROR);
+                if (is_array($context)) {
+                    $risk = $context['risk'] ?? null;
+                    if (is_array($risk) && isset($risk['reason'])) {
+                        $riskReason = (string) $risk['reason'];
+                    }
+                }
+            } catch (Throwable $e) {
+                $riskReason = null;
+            }
+        }
+
         $rows[] = [
             'id' => (int) $row['id'],
             'login_time' => (string) $row['login_time'],
@@ -58,6 +73,7 @@ try {
             'status' => (string) $row['status'],
             'risk_score' => $row['risk_score'] !== null ? (float) $row['risk_score'] : null,
             'risk_decision' => $row['risk_decision'] !== null ? (string) $row['risk_decision'] : null,
+            'risk_reason' => $riskReason,
             'submitted_email' => $row['submitted_email'] !== null ? (string) $row['submitted_email'] : null,
             'known_email' => $row['known_email'] !== null ? (string) $row['known_email'] : null,
             'context_json' => $row['context_json'] !== null ? (string) $row['context_json'] : null,

@@ -55,6 +55,15 @@ function initActivityTable(chartInstance) {
         return;
     }
 
+    const contextModalEl = document.getElementById('contextModal');
+    const contextModalBody = document.getElementById('contextModalBody');
+    const contextModalMeta = document.getElementById('contextModalMeta');
+    const contextModalReason = document.getElementById('contextModalReason');
+    const contextModalLabel = document.getElementById('contextModalLabel');
+    const contextModal = (contextModalEl && typeof bootstrap !== 'undefined')
+        ? new bootstrap.Modal(contextModalEl)
+        : null;
+
     const pageSizeSelect = document.getElementById('activity-page-size');
     const prevButton = document.getElementById('activity-prev');
     const nextButton = document.getElementById('activity-next');
@@ -76,7 +85,7 @@ function initActivityTable(chartInstance) {
         tableBody.innerHTML = '';
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'text-center text-muted';
         cell.textContent = message;
         row.appendChild(cell);
@@ -136,7 +145,7 @@ function initActivityTable(chartInstance) {
         if (!Array.isArray(logs) || logs.length === 0) {
             const row = document.createElement('tr');
             const cell = document.createElement('td');
-            cell.colSpan = 6;
+            cell.colSpan = 7;
             cell.className = 'text-center text-muted';
             cell.textContent = 'No login activity recorded yet.';
             row.appendChild(cell);
@@ -146,6 +155,11 @@ function initActivityTable(chartInstance) {
 
         logs.forEach((log) => {
             const row = document.createElement('tr');
+
+            // ID
+            const idTd = document.createElement('td');
+            idTd.textContent = log.id ?? '—';
+            row.appendChild(idTd);
 
             // Timestamp
             const tsTd = document.createElement('td');
@@ -209,7 +223,7 @@ function initActivityTable(chartInstance) {
             const riskTd = document.createElement('td');
             if (log.risk_score !== null && log.risk_score !== undefined) {
                 const riskWrapper = document.createElement('div');
-                riskWrapper.className = 'd-flex flex-column small';
+                riskWrapper.className = 'd-flex flex-column small gap-1';
 
                 const scoreLine = document.createElement('span');
                 scoreLine.textContent = Number.parseFloat(log.risk_score).toFixed(3);
@@ -220,6 +234,13 @@ function initActivityTable(chartInstance) {
                 decisionLine.textContent = log.risk_decision || 'n/a';
                 riskWrapper.appendChild(decisionLine);
 
+                if (log.risk_reason) {
+                    const reasonLine = document.createElement('span');
+                    reasonLine.className = 'text-muted';
+                    reasonLine.textContent = log.risk_reason;
+                    riskWrapper.appendChild(reasonLine);
+                }
+
                 riskTd.appendChild(riskWrapper);
             } else {
                 const na = document.createElement('span');
@@ -229,20 +250,12 @@ function initActivityTable(chartInstance) {
             }
 
             if (log.context_json) {
-                const details = document.createElement('details');
-                details.className = 'mt-1';
-
-                const summary = document.createElement('summary');
-                summary.className = 'text-muted small';
-                summary.textContent = 'Context';
-                details.appendChild(summary);
-
-                const pre = document.createElement('pre');
-                pre.className = 'small bg-light border rounded p-2 mb-0';
-                pre.textContent = prettyContext(log.context_json);
-                details.appendChild(pre);
-
-                riskTd.appendChild(details);
+                const contextBtn = document.createElement('button');
+                contextBtn.type = 'button';
+                contextBtn.className = 'btn btn-link btn-sm px-0 text-decoration-none mt-1';
+                contextBtn.textContent = 'View context';
+                contextBtn.addEventListener('click', () => openContextModal(log));
+                riskTd.appendChild(contextBtn);
             }
 
             row.appendChild(riskTd);
@@ -326,7 +339,7 @@ function initActivityTable(chartInstance) {
             tableBody.innerHTML = '';
             const row = document.createElement('tr');
             const cell = document.createElement('td');
-            cell.colSpan = 6;
+            cell.colSpan = 7;
             cell.className = 'text-center text-danger';
             cell.textContent = 'Failed to load activity feed.';
             row.appendChild(cell);
@@ -363,4 +376,31 @@ function initActivityTable(chartInstance) {
 
     loadData();
     setInterval(() => loadData({ silent: true }), 3000);
+
+    function openContextModal(log) {
+        if (!contextModal || !contextModalBody || !contextModalMeta || !contextModalReason) {
+            return;
+        }
+
+        if (contextModalLabel) {
+            contextModalLabel.textContent = `Attempt #${log.id ?? '—'}`;
+        }
+
+        const timestamp = formatTimestamp(log.login_time);
+        const ip = log.ip_address || 'Unknown IP';
+        const decision = log.risk_decision || 'n/a';
+        const score = (log.risk_score !== null && log.risk_score !== undefined)
+            ? Number.parseFloat(log.risk_score).toFixed(3)
+            : 'n/a';
+
+        contextModalMeta.textContent = `${timestamp} · ${ip} · Decision: ${decision} · Score: ${score}`;
+        contextModalReason.textContent = log.risk_reason
+            ? log.risk_reason
+            : 'No explanation recorded for this attempt.';
+
+        const formatted = prettyContext(log.context_json);
+        contextModalBody.textContent = formatted || 'No context available.';
+
+        contextModal.show();
+    }
 }

@@ -108,6 +108,7 @@ $lastAttemptText = $lastLogin ? date('M j, Y g:i A', strtotime((string) $lastLog
                         <table class="table align-middle">
                             <thead class="table-light">
                             <tr>
+                                <th scope="col">ID</th>
                                 <th scope="col">Timestamp</th>
                                 <th scope="col">User</th>
                                 <th scope="col">IP Address</th>
@@ -118,7 +119,7 @@ $lastAttemptText = $lastLogin ? date('M j, Y g:i A', strtotime((string) $lastLog
                             </thead>
                             <tbody id="activity-table-body">
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted">Loading activity&hellip;</td>
+                                    <td colspan="7" class="text-center text-muted">Loading activity&hellip;</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -128,6 +129,27 @@ $lastAttemptText = $lastLogin ? date('M j, Y g:i A', strtotime((string) $lastLog
         </div>
     </div>
 </main>
+
+<div class="modal fade" id="contextModal" tabindex="-1" aria-labelledby="contextModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="contextModalLabel">Attempt Context</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <div class="fw-semibold" id="contextModalMeta">Attempt details loading…</div>
+                    <div class="text-muted small" id="contextModalReason"></div>
+                </div>
+                <pre class="bg-light border rounded p-3 small mb-0" id="contextModalBody">No context available.</pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>

@@ -2,3 +2,4 @@
 {"ts": "2025-10-15T14:00:00", "tau1": 0.18, "tau2": 0.38, "kind": "baseline", "attack_rate": null, "d_tau1": 0.0, "d_tau2": 0.0}
 {"ts": "2025-10-15T14:00:18", "tau1": 0.18, "tau2": 0.38, "kind": "baseline", "attack_rate": null, "d_tau1": 0.0, "d_tau2": 0.0}
 {"ts": "2025-10-15T16:32:31", "tau1": 0.18, "tau2": 0.38, "kind": "baseline", "attack_rate": null, "d_tau1": 0.01999999999999999, "d_tau2": 0.16}
+{"ts": "2025-10-16T20:13:54", "tau1": 0.18, "tau2": 0.38, "kind": "baseline", "attack_rate": null, "d_tau1": 0.0, "d_tau2": 0.0}

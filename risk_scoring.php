@@ -53,6 +53,8 @@ function buildRiskFeatures(PDO $pdo, array $ctx): array
     $asnCode = estimateAsn($ip);
 
     return [
+        'attempts_30s_by_ip' => (float) countRecentAttemptsByIpSeconds($pdo, $ip, 30),
+        'attempts_30s_total' => (float) countRecentAttemptsTotalSeconds($pdo, 30),
         'attempts_1m_by_ip' => (float) countRecentAttemptsByIp($pdo, $ip, 1),
         'attempts_5m_by_ip' => (float) countRecentAttemptsByIp($pdo, $ip, 5),
         'attempts_1m_by_user' => (float) countRecentAttemptsByUserEmail($pdo, $email, 1),
@@ -247,6 +249,30 @@ function countRecentAttemptsByIp(PDO $pdo, string $ip, int $minutes): int
     return (int) $stmt->fetchColumn();
 }
 
+function countRecentAttemptsByIpSeconds(PDO $pdo, string $ip, int $seconds): int
+{
+    $seconds = max(1, $seconds);
+    $sql = sprintf(
+        'SELECT COUNT(*) FROM login_logs WHERE ip_address = :ip AND login_time >= DATE_SUB(NOW(), INTERVAL %d SECOND)',
+        $seconds
+    );
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':ip' => $ip]);
+    return (int) $stmt->fetchColumn();
+}
+
+function countRecentAttemptsTotalSeconds(PDO $pdo, int $seconds): int
+{
+    $seconds = max(1, $seconds);
+    $sql = sprintf(
+        'SELECT COUNT(*) FROM login_logs WHERE login_time >= DATE_SUB(NOW(), INTERVAL %d SECOND)',
+        $seconds
+    );
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute();
+    return (int) $stmt->fetchColumn();
+}
+
 function countRecentAttemptsByUserEmail(PDO $pdo, string $email, int $minutes): int
 {
     if ($email === '') {
@@ -355,7 +381,8 @@ function estimateInterAttemptMs(PDO $pdo, string $ip): float
  *     score: float|null,
  *     decision: string|null,
  *     tau1: float|null,
- *     tau2: float|null
+ *     tau2: float|null,
+ *     reason: string|null
  * }|null
  */
 function scoreLoginAttempt(array $features): ?array
@@ -410,10 +437,182 @@ function scoreLoginAttempt(array $features): ?array
         return null;
     }
 
-    return [
+    $baseResult = [
         'score' => isset($result['score']) ? (float) $result['score'] : null,
         'decision' => isset($result['decision']) ? (string) $result['decision'] : null,
         'tau1' => isset($result['tau1']) ? (float) $result['tau1'] : null,
         'tau2' => isset($result['tau2']) ? (float) $result['tau2'] : null,
     ];
+
+    if (!array_key_exists('reason', $baseResult)) {
+        $baseResult['reason'] = null;
+    }
+
+    // Comment out the next block if you want to disable the Ollama augmentation layer.
+    $augmented = augmentRiskDecisionWithOllama($features, $baseResult);
+    if (is_array($augmented)) {
+        return $augmented;
+    }
+
+    return $baseResult;
+}
+
+/**
+ * Enrich the base scorer decision using a local Ollama model (e.g. phi-3.5).
+ *
+ * @param array<string, int|float|string> $features
+ * @param array{score: float|null, decision: string|null, tau1: float|null, tau2: float|null, reason: string|null} $baseResult
+ *
+ * @return array{score: float|null, decision: string|null, tau1: float|null, tau2: float|null, reason: string|null}|null
+ */
+function augmentRiskDecisionWithOllama(array $features, array $baseResult): ?array
+{
+    $model = trim((string) (getenv('OLLAMA_RISK_MODEL') ?: 'phi:3.5'));
+    if ($model === '') {
+        return null;
+    }
+
+    if (!function_exists('curl_init')) {
+        error_log('[risk_scoring] Ollama integration requires the PHP cURL extension.');
+        return null;
+    }
+
+    $endpoint = trim((string) (getenv('OLLAMA_HOST') ?: 'http://127.0.0.1:11434'));
+    $url = rtrim($endpoint, '/') . '/api/generate';
+
+    $prompt = buildOllamaPrompt($features, $baseResult);
+    try {
+        $payload = json_encode([
+            'model' => $model,
+            'prompt' => $prompt,
+            'format' => 'json',
+            'stream' => false,
+            'options' => [
+                'temperature' => 0.0,
+            ],
+        ], JSON_THROW_ON_ERROR);
+    } catch (\JsonException $e) {
+        error_log('[risk_scoring] Failed to encode Ollama payload: ' . $e->getMessage());
+        return null;
+    }
+
+    $ch = curl_init($url);
+    if ($ch === false) {
+        error_log('[risk_scoring] Failed to init curl handle for Ollama.');
+        return null;
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+
+    $body = curl_exec($ch);
+    if ($body === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        error_log('[risk_scoring] Ollama request failed: ' . $err);
+        return null;
+    }
+
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($status < 200 || $status >= 300) {
+        error_log('[risk_scoring] Ollama returned HTTP ' . $status);
+        return null;
+    }
+
+    $decoded = json_decode($body, true);
+    if (!is_array($decoded)) {
+        error_log('[risk_scoring] Ollama response not valid JSON: ' . $body);
+        return null;
+    }
+
+    $responsePayload = null;
+    if (isset($decoded['response']) && is_string($decoded['response'])) {
+        $responsePayload = trim($decoded['response']);
+    } elseif (isset($decoded['message']['content']) && is_string($decoded['message']['content'])) {
+        $responsePayload = trim($decoded['message']['content']);
+    }
+
+    if ($responsePayload === null || $responsePayload === '') {
+        error_log('[risk_scoring] Ollama response missing content.');
+        return null;
+    }
+
+    $parsed = json_decode($responsePayload, true);
+    if (!is_array($parsed)) {
+        error_log('[risk_scoring] Ollama decision payload invalid: ' . $responsePayload);
+        return null;
+    }
+
+    $augmented = $baseResult;
+
+    if (array_key_exists('score', $parsed)) {
+        $augmented['score'] = is_numeric($parsed['score']) ? (float) $parsed['score'] : $augmented['score'];
+    }
+
+    if (array_key_exists('tau1', $parsed)) {
+        $augmented['tau1'] = is_numeric($parsed['tau1']) ? (float) $parsed['tau1'] : $augmented['tau1'];
+    }
+
+    if (array_key_exists('tau2', $parsed)) {
+        $augmented['tau2'] = is_numeric($parsed['tau2']) ? (float) $parsed['tau2'] : $augmented['tau2'];
+    }
+
+    if (isset($parsed['decision'])) {
+        $candidate = strtolower((string) $parsed['decision']);
+        $allowed = ['allow', 'step_up', 'block'];
+        if (in_array($candidate, $allowed, true)) {
+            $augmented['decision'] = $candidate;
+        }
+    }
+
+    if (isset($parsed['reason'])) {
+        $augmented['reason'] = trim((string) $parsed['reason']);
+    }
+
+    return $augmented;
+}
+
+/**
+ * Craft the prompt instructing the local Ollama model how to judge the login attempt.
+ *
+ * @param array<string, int|float|string> $features
+ * @param array{score: float|null, decision: string|null, tau1: float|null, tau2: float|null, reason: string|null} $baseResult
+ */
+function buildOllamaPrompt(array $features, array $baseResult): string
+{
+    try {
+        $featureJson = json_encode($features, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $baseJson = json_encode($baseResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    } catch (\JsonException $e) {
+        $featureJson = '{}';
+        $baseJson = '{}';
+    }
+
+    $instructions = <<<PROMPT
+You are an AI security analyst helping to detect suspicious login attempts. Review the engineered login features and the baseline model verdict. \
+Focus on signals that could indicate attack conditions such as rapid bursts of attempts, unusual IP behavior, or unseen devices. \
+Decide whether to allow, step up, or block the attempt.
+
+Return a strict JSON object with the following fields:
+- "score": float risk score between 0 and 1 (you may reuse or adjust the baseline score).
+- "decision": one of "allow", "step_up", or "block".
+- "tau1": float threshold for step-up.
+- "tau2": float threshold for block.
+- "reason": short sentence describing the key evidence behind your decision.
+
+Baseline model result:
+$baseJson
+
+Engineered features:
+$featureJson
+PROMPT;
+
+    return $instructions;
 }
