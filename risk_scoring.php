@@ -55,6 +55,8 @@ function buildRiskFeatures(PDO $pdo, array $ctx): array
     return [
         'attempts_30s_by_ip' => (float) countRecentAttemptsByIpSeconds($pdo, $ip, 30),
         'attempts_30s_total' => (float) countRecentAttemptsTotalSeconds($pdo, 30),
+        'success_30m_by_ip' => (float) countRecentSuccessByIp($pdo, $ip, 30),
+        'success_24h_by_user' => (float) countRecentSuccessByUserEmail($pdo, $email, 24 * 60),
         'attempts_1m_by_ip' => (float) countRecentAttemptsByIp($pdo, $ip, 1),
         'attempts_5m_by_ip' => (float) countRecentAttemptsByIp($pdo, $ip, 5),
         'attempts_1m_by_user' => (float) countRecentAttemptsByUserEmail($pdo, $email, 1),
@@ -69,6 +71,8 @@ function buildRiskFeatures(PDO $pdo, array $ctx): array
         'device_type' => $deviceType,
         'country_ip' => $countryCode,
         'asn_ip' => $asnCode,
+        'last_success_minutes_ago' => computeMinutesSinceLastSuccess($pdo, $userId),
+        'last_success_ip_match' => (string) (checkLastSuccessIpMatch($pdo, $userId, $ip) ? 1 : 0),
         'device_seen_before_user' => (string) $deviceSeen,
         'cookie_seen_before_user' => (string) $cookieSeen,
     ];
@@ -290,6 +294,35 @@ function countRecentAttemptsByUserEmail(PDO $pdo, string $email, int $minutes): 
     return (int) $stmt->fetchColumn();
 }
 
+function countRecentSuccessByIp(PDO $pdo, string $ip, int $minutes): int
+{
+    $minutes = max(1, $minutes);
+    $sql = sprintf(
+        'SELECT COUNT(*) FROM login_logs WHERE ip_address = :ip AND status = "valid" AND login_time >= DATE_SUB(NOW(), INTERVAL %d MINUTE)',
+        $minutes
+    );
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':ip' => $ip]);
+    return (int) $stmt->fetchColumn();
+}
+
+function countRecentSuccessByUserEmail(PDO $pdo, string $email, int $minutes): int
+{
+    if ($email === '') {
+        return 0;
+    }
+    $minutes = max(1, $minutes);
+    $sql = sprintf(
+        'SELECT COUNT(*) FROM login_logs
+         JOIN users ON login_logs.user_id = users.id
+         WHERE users.email = :email AND login_logs.status = "valid" AND login_time >= DATE_SUB(NOW(), INTERVAL %d MINUTE)',
+        $minutes
+    );
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':email' => $email]);
+    return (int) $stmt->fetchColumn();
+}
+
 function computeFailRatioByIp(PDO $pdo, string $ip, int $minutes): float
 {
     $minutes = max(1, $minutes);
@@ -370,6 +403,47 @@ function estimateInterAttemptMs(PDO $pdo, string $ip): float
 
     $diff = (time() - $lastTs) * 1000;
     return $diff > 0 ? (float) $diff : 1000.0;
+}
+
+function computeMinutesSinceLastSuccess(PDO $pdo, ?int $userId): float
+{
+    if ($userId === null) {
+        return 1.0e3;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT login_time FROM login_logs WHERE user_id = :user_id AND status = "valid" ORDER BY login_time DESC LIMIT 1'
+    );
+    $stmt->execute([':user_id' => $userId]);
+    $last = $stmt->fetchColumn();
+    if ($last === false) {
+        return 1.0e3;
+    }
+
+    $lastTs = strtotime((string) $last);
+    if ($lastTs === false) {
+        return 1.0e3;
+    }
+
+    $diffMinutes = (time() - $lastTs) / 60;
+    return $diffMinutes >= 0 ? (float) $diffMinutes : 0.0;
+}
+
+function checkLastSuccessIpMatch(PDO $pdo, ?int $userId, string $ip): bool
+{
+    if ($userId === null || $ip === '') {
+        return false;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT ip_address FROM login_logs WHERE user_id = :user_id AND status = "valid" ORDER BY login_time DESC LIMIT 1'
+    );
+    $stmt->execute([':user_id' => $userId]);
+    $lastIp = $stmt->fetchColumn();
+    if ($lastIp === false) {
+        return false;
+    }
+    return hash_equals((string) $lastIp, $ip);
 }
 
 /**
